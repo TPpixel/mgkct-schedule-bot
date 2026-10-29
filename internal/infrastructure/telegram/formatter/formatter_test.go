@@ -792,3 +792,55 @@ func TestIsCurrentWeek(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatScheduleDay_TodayMarker(t *testing.T) {
+	day := &entities.Day{
+		Name: "Вторник",
+		Subjects: []*entities.Subject{
+			{Pairs: []*entities.Pair{{Name: "Информатика"}}},
+		},
+	}
+
+	t.Run("without today marker", func(t *testing.T) {
+		got := formatScheduleDayWithToday(day, false)
+		assert.Contains(t, got, "*Вторник\n*")
+		assert.NotContains(t, got, "(сегодня)")
+	})
+
+	t.Run("with today marker", func(t *testing.T) {
+		got := formatScheduleDayWithToday(day, true)
+		assert.Contains(t, got, "*Вторник (сегодня)\n*")
+	})
+
+	t.Run("with today marker and second shift", func(t *testing.T) {
+		secondShiftDay := &entities.Day{
+			Name: "Вторник",
+			Subjects: []*entities.Subject{
+				{IsEmpty: true},
+				{IsEmpty: true},
+				{IsEmpty: true},
+				{Pairs: []*entities.Pair{{Name: "Информатика"}}},
+			},
+		}
+		got := formatScheduleDayWithToday(secondShiftDay, true)
+		assert.Contains(t, got, "*Вторник (сегодня) (2 смена)\n*")
+	})
+}
+
+func TestIsDayToday(t *testing.T) {
+	origNow := nowFunc
+	defer func() { nowFunc = origNow }()
+
+	// Фиксируем вторник текущей недели
+	tuesdayNoon := time.Date(2026, 10, 27, 12, 0, 0, 0, minskLoc)
+	nowFunc = func() time.Time { return tuesdayNoon }
+
+	currentWeek := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	nextWeek := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
+
+	// Вторник = индекс 1
+	assert.True(t, isDayToday(currentWeek, 1), "вторник текущей недели должен быть сегодня")
+	assert.False(t, isDayToday(currentWeek, 0), "понедельник текущей недели не сегодня")
+	assert.False(t, isDayToday(currentWeek, 2), "среда текущей недели не сегодня")
+	assert.False(t, isDayToday(nextWeek, 1), "вторник следующей недели не сегодня")
+}

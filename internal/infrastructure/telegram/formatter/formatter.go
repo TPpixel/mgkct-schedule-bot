@@ -32,7 +32,10 @@ func FormatErrorMessage(err error) string {
 
 const secondShiftMinIndex = 3
 
-var minskLoc = time.FixedZone("MSK", 3*3600)
+var (
+	minskLoc = time.FixedZone("MSK", 3*3600)
+	nowFunc  = time.Now
+)
 
 func isCurrentWeek(week, currentWeekMonday time.Time) bool {
 	if week.IsZero() {
@@ -43,19 +46,47 @@ func isCurrentWeek(week, currentWeekMonday time.Time) bool {
 	return weekMonday.Equal(currentWeekMonday)
 }
 
+func currentWeekMondayInMinsk(nowMinsk time.Time) time.Time {
+	today := (int(nowMinsk.Weekday()) + 6) % 7
+	return time.Date(nowMinsk.Year(), nowMinsk.Month(), nowMinsk.Day(), 0, 0, 0, 0, minskLoc).AddDate(0, 0, -today)
+}
+
+func isDayToday(week time.Time, dayIdx int) bool {
+	nowMinsk := nowFunc().In(minskLoc)
+	todayIdx := (int(nowMinsk.Weekday()) + 6) % 7
+	if todayIdx != dayIdx {
+		return false
+	}
+	currentMonday := currentWeekMondayInMinsk(nowMinsk)
+	return isCurrentWeek(week, currentMonday)
+}
+
 func formatScheduleDay(day *entities.Day) string {
+	return formatScheduleDayWithToday(day, false)
+}
+
+func formatScheduleDayWithToday(day *entities.Day, isToday bool) string {
 	var sb strings.Builder
 	sb.Grow(256)
 
 	first := findFirstSubject(day.Subjects)
 
 	skip := 0
-	if first >= secondShiftMinIndex {
-		fmt.Fprintf(&sb, "*%s %s\n*", escapeMD(day.Name), messages.SecondShift)
+	isSecondShift := first >= secondShiftMinIndex
+	if isSecondShift {
 		skip = first
-	} else {
-		fmt.Fprintf(&sb, "*%s\n*", escapeMD(day.Name))
 	}
+
+	var titleParts []string
+	titleParts = append(titleParts, escapeMD(day.Name))
+	if isToday {
+		titleParts = append(titleParts, messages.Today)
+	}
+	if isSecondShift {
+		titleParts = append(titleParts, messages.SecondShift)
+	}
+
+	fmt.Fprintf(&sb, "*%s\n*", strings.Join(titleParts, " "))
 
 	sb.WriteString(formatSubjects(day.Subjects, skip))
 	sb.WriteString("\n")
@@ -241,9 +272,9 @@ func FormatScheduleDayForSubgroup(group *entities.Group, subgroup int) string {
 	filtered := FilterGroupForSubgroup(group, subgroup)
 	dayIdx := EffectiveDayIndex(filtered)
 	if dayIdx >= len(filtered.Days) {
-		return formatScheduleDay(filtered.Days[0])
+		return formatScheduleDayWithToday(filtered.Days[0], isDayToday(group.Week, 0))
 	}
-	return formatScheduleDay(filtered.Days[dayIdx])
+	return formatScheduleDayWithToday(filtered.Days[dayIdx], isDayToday(group.Week, dayIdx))
 }
 
 func FormatScheduleDayAt(group *entities.Group, dayIdx int) (string, error) {
@@ -255,7 +286,7 @@ func FormatScheduleDayAtForSubgroup(group *entities.Group, dayIdx int, subgroup 
 	if dayIdx < 0 || dayIdx >= len(filtered.Days) {
 		return "", fmt.Errorf("formatter: day index %d out of range (%d days)", dayIdx, len(filtered.Days))
 	}
-	return formatScheduleDay(filtered.Days[dayIdx]), nil
+	return formatScheduleDayWithToday(filtered.Days[dayIdx], isDayToday(group.Week, dayIdx)), nil
 }
 
 var weekdaysTimeEnd = map[int][2]int{
@@ -312,8 +343,8 @@ func FormatScheduleWeekForSubgroup(group *entities.Group, subgroup int) string {
 	var sb strings.Builder
 	sb.Grow(len(filtered.Days) * 128)
 
-	for _, day := range filtered.Days {
-		sb.WriteString(formatScheduleDay(day))
+	for i, day := range filtered.Days {
+		sb.WriteString(formatScheduleDayWithToday(day, isDayToday(group.Week, i)))
 	}
 
 	return sb.String()
@@ -501,31 +532,44 @@ func FormatTeacherProfile(member *entities.FacultyMember) string {
 func FormatTeacherScheduleDay(teacher *entities.Teacher) string {
 	dayIdx := EffectiveTeacherDayIndex(teacher)
 	if dayIdx >= len(teacher.Days) {
-		return formatTeacherScheduleDay(teacher.Days[0])
+		return formatTeacherScheduleDayWithToday(teacher.Days[0], isDayToday(teacher.Week, 0))
 	}
-	return formatTeacherScheduleDay(teacher.Days[dayIdx])
+	return formatTeacherScheduleDayWithToday(teacher.Days[dayIdx], isDayToday(teacher.Week, dayIdx))
 }
 
 func FormatTeacherScheduleDayAt(teacher *entities.Teacher, dayIdx int) (string, error) {
 	if dayIdx < 0 || dayIdx >= len(teacher.Days) {
 		return "", fmt.Errorf("formatter: day index %d out of range (%d days)", dayIdx, len(teacher.Days))
 	}
-	return formatTeacherScheduleDay(teacher.Days[dayIdx]), nil
+	return formatTeacherScheduleDayWithToday(teacher.Days[dayIdx], isDayToday(teacher.Week, dayIdx)), nil
 }
 
 func formatTeacherScheduleDay(day *entities.Day) string {
+	return formatTeacherScheduleDayWithToday(day, false)
+}
+
+func formatTeacherScheduleDayWithToday(day *entities.Day, isToday bool) string {
 	var sb strings.Builder
 	sb.Grow(256)
 
 	first := findFirstSubject(day.Subjects)
 
 	skip := 0
-	if first >= secondShiftMinIndex {
-		fmt.Fprintf(&sb, "*%s %s\n*", escapeMD(day.Name), messages.SecondShift)
+	isSecondShift := first >= secondShiftMinIndex
+	if isSecondShift {
 		skip = first
-	} else {
-		fmt.Fprintf(&sb, "*%s\n*", escapeMD(day.Name))
 	}
+
+	var titleParts []string
+	titleParts = append(titleParts, escapeMD(day.Name))
+	if isToday {
+		titleParts = append(titleParts, messages.Today)
+	}
+	if isSecondShift {
+		titleParts = append(titleParts, messages.SecondShift)
+	}
+
+	fmt.Fprintf(&sb, "*%s\n*", strings.Join(titleParts, " "))
 
 	sb.WriteString(formatTeacherSubjects(day.Subjects, skip))
 	sb.WriteString("\n")
@@ -568,8 +612,8 @@ func FormatTeacherScheduleWeek(teacher *entities.Teacher) string {
 	var sb strings.Builder
 	sb.Grow(len(teacher.Days) * 128)
 
-	for _, day := range teacher.Days {
-		sb.WriteString(formatTeacherScheduleDay(day))
+	for i, day := range teacher.Days {
+		sb.WriteString(formatTeacherScheduleDayWithToday(day, isDayToday(teacher.Week, i)))
 	}
 
 	return sb.String()
